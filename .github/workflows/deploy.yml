@@ -32,6 +32,6 @@ jobs:
       - name: Deploy to server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }} '
-            cd srv/g2backend &&
+            cd srv/G2backend &&
             ./deploy.sh
           '
