@@ -22,6 +22,10 @@ from datetime import datetime
 from calendar import monthrange
 from .serializers import MemberImageAttachSerializer
 from django.utils import timezone
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
 
 today = timezone.now().date()
 class MemberListPagination(PageNumberPagination):
@@ -66,15 +70,16 @@ class ListMembersView(generics.ListAPIView):
     ordering_fields = ["start_date", "end_date", "left_days"]
     ordering = ["-start_date"]
     pagination_class = MemberListPagination
+    
     def get_queryset(self):
         now = timezone.now().date()
-        # Default ordering prevents UnorderedObjectListWarning; ordering filter can override
-        MemberProfile.objects.filter(
-            end_date__lt=now,
-            user__is_active=True
-        ).update(user__is_active=False)
+        
+        User.objects.filter(
+            memberprofile__end_date__lt=now,
+            is_active=True
+        ).update(is_active=False)
 
-        queryset = MemberProfile.objects.all()
+        queryset = MemberProfile.objects.all().order_by("id")
 
         search_term = self.request.query_params.get("search", "").strip()
         if search_term:
@@ -83,7 +88,7 @@ class ListMembersView(generics.ListAPIView):
         queryset = queryset.annotate(
             left_days=ExpressionWrapper(
                 F("end_date") - now,
-                output_field=fields.DurationField()
+                output_field=fields.DurationField(),
             )
         )
 
