@@ -57,7 +57,6 @@ class MemberCreateView(generics.CreateAPIView):
     
 
 class ListMembersView(generics.ListAPIView):
-    queryset = MemberProfile.objects.all()
     serializer_class = MemberUpdateSerializer
     permission_classes = [CanViewMembersList]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -70,7 +69,12 @@ class ListMembersView(generics.ListAPIView):
     def get_queryset(self):
         now = timezone.now().date()
         # Default ordering prevents UnorderedObjectListWarning; ordering filter can override
-        queryset = MemberProfile.objects.all().order_by("id")
+        MemberProfile.objects.filter(
+            end_date__lt=now,
+            user__is_active=True
+        ).update(user__is_active=False)
+
+        queryset = MemberProfile.objects.all()
 
         search_term = self.request.query_params.get("search", "").strip()
         if search_term:
@@ -83,7 +87,8 @@ class ListMembersView(generics.ListAPIView):
             )
         )
 
-        return queryset  
+        return queryset
+
 
     def apply_fuzzy_search(self, queryset, term):
         """Fuzzy search: use trigram similarity on Postgres; fallback to icontains elsewhere."""
