@@ -44,7 +44,10 @@ class MemberProfile(models.Model):
     package_type = models.CharField(max_length=20, choices=PACKAGE_CHOICES)
     start_date = models.DateTimeField(default=timezone.now)
     end_date = models.DateTimeField()
- 
+
+    class Meta:
+        ordering = ['-start_date']
+
 
     def generate_unique_barcode(self):
 
