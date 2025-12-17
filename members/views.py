@@ -72,7 +72,7 @@ class ListMembersView(generics.ListAPIView):
     pagination_class = MemberListPagination
     
     def get_queryset(self):
-        now = timezone.now().date()
+        now = timezone.now()
         
         User.objects.filter(
             profile__end_date__lt=now,
