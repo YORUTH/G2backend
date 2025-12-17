@@ -75,10 +75,10 @@ class ListMembersView(generics.ListAPIView):
         now = timezone.now().date()
         
         User.objects.filter(
-            memberprofile__end_date__lt=now,
+            profile__end_date__lt=now,
             is_active=True
         ).update(is_active=False)
-
+        
         queryset = MemberProfile.objects.all().order_by("id")
 
         search_term = self.request.query_params.get("search", "").strip()
