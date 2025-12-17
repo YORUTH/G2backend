@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import F, ExpressionWrapper, fields, Q
 from django.db.models.functions import Greatest
-from django.db import connection
+from django.db import connection, ProgrammingError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 from rest_framework.views import APIView
@@ -68,7 +68,8 @@ class ListMembersView(generics.ListAPIView):
     pagination_class = MemberListPagination
     def get_queryset(self):
         now = timezone.now().date()
-        queryset = MemberProfile.objects.all()
+        # Default ordering prevents UnorderedObjectListWarning; ordering filter can override
+        queryset = MemberProfile.objects.all().order_by("id")
 
         search_term = self.request.query_params.get("search", "").strip()
         if search_term:
@@ -90,19 +91,27 @@ class ListMembersView(generics.ListAPIView):
 
         if connection.vendor == "postgresql":
             try:
-                from django.contrib.postgres.search import TrigramSimilarity
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+                    has_trgm = cursor.fetchone() is not None
 
-                queryset = queryset.annotate(
-                    similarity=Greatest(
-                        TrigramSimilarity("user__first_name", term),
-                        TrigramSimilarity("user__last_name", term),
-                        TrigramSimilarity("user__phone_number", term),
-                        TrigramSimilarity("barcode", term),
-                    )
-                ).filter(similarity__gt=0.2).order_by("similarity")
-                return queryset
+                if has_trgm:
+                    from django.contrib.postgres.search import TrigramSimilarity
+
+                    queryset = queryset.annotate(
+                        similarity=Greatest(
+                            TrigramSimilarity("user__first_name", term),
+                            TrigramSimilarity("user__last_name", term),
+                            TrigramSimilarity("user__phone_number", term),
+                            TrigramSimilarity("barcode", term),
+                        )
+                    ).filter(similarity__gt=0.2).order_by("-similarity")
+                    return queryset
+            except ProgrammingError:
+                # Extension not available or not installed; fall back
+                pass
             except Exception:
-                # Fall back to icontains if trigram isn't available (e.g., non-Postgres or extension missing)
+                # Any other issue: fall back to icontains
                 pass
 
         return queryset.filter(
