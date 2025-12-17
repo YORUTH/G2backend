@@ -4,8 +4,11 @@ from .serializers import MemberCreateSerializer, TrainerUpdateSerializer, Member
 from accounts.permissions import IsReceptionist, IsTrainer, IsMember,CanViewMemberDetail ,CanViewMembersList
 from rest_framework.response import Response
 from rest_framework import status
-from django.db.models import F, ExpressionWrapper, fields
+from django.db.models import F, ExpressionWrapper, fields, Q
+from django.db.models.functions import Greatest
+from django.db import connection
 from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import OrderingFilter
 from rest_framework.views import APIView
 from .serializers import CheckInSerializer
 from django.utils import timezone
@@ -57,16 +60,19 @@ class ListMembersView(generics.ListAPIView):
     queryset = MemberProfile.objects.all()
     serializer_class = MemberUpdateSerializer
     permission_classes = [CanViewMembersList]
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
     http_method_names = ["get"]
     filterset_class = MemberProfileFilter  
-    filterset_fields = ["phone_number", "first_name", "last_name", "barcode", "package_type", "start_date", "end_date"]
-    search_fields = ["phone_number", "first_name", "last_name", "barcode"]
+    filterset_fields = ["phone_number", "first_name", "last_name", "barcode", "package_type", "start_date", "end_date", "left_days"]
     ordering_fields = ["start_date", "end_date", "left_days"] 
     pagination_class = MemberListPagination
     def get_queryset(self):
         now = timezone.now().date()
         queryset = MemberProfile.objects.all()
+
+        search_term = self.request.query_params.get("search", "").strip()
+        if search_term:
+            queryset = self.apply_fuzzy_search(queryset, search_term)
 
         queryset = queryset.annotate(
             left_days=ExpressionWrapper(
@@ -76,6 +82,35 @@ class ListMembersView(generics.ListAPIView):
         )
 
         return queryset  
+
+    def apply_fuzzy_search(self, queryset, term):
+        """Fuzzy search: use trigram similarity on Postgres; fallback to icontains elsewhere."""
+        if not term:
+            return queryset
+
+        if connection.vendor == "postgresql":
+            try:
+                from django.contrib.postgres.search import TrigramSimilarity
+
+                queryset = queryset.annotate(
+                    similarity=Greatest(
+                        TrigramSimilarity("user__first_name", term),
+                        TrigramSimilarity("user__last_name", term),
+                        TrigramSimilarity("user__phone_number", term),
+                        TrigramSimilarity("barcode", term),
+                    )
+                ).filter(similarity__gt=0.2).order_by("similarity")
+                return queryset
+            except Exception:
+                # Fall back to icontains if trigram isn't available (e.g., non-Postgres or extension missing)
+                pass
+
+        return queryset.filter(
+            Q(user__first_name__icontains=term)
+            | Q(user__last_name__icontains=term)
+            | Q(user__phone_number__icontains=term)
+            | Q(barcode__icontains=term)
+        )
 class MyProfileView(generics.RetrieveAPIView):
     serializer_class = MemberUpdateSerializer
     permission_classes = [CanViewMemberDetail]
